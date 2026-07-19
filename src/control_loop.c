@@ -1,6 +1,7 @@
 #include "control_loop.h"
 #include "pid.h"
 #include "resolver_iface.h"
+#include "bit_monitor.h"
 
 /* One PID instance per lane; DAL-A channels do not share mutable state. */
 static pid_state_t s_pid[2];
@@ -19,6 +20,7 @@ void control_loop_init(control_state_t *state, lane_id_t lane)
              (float)CONTROL_LOOP_PERIOD_US / 1000000.0f);
 
     resolver_init(lane);
+    bit_monitor_init(lane);
 }
 
 void control_loop_step(control_state_t *state)
@@ -28,9 +30,15 @@ void control_loop_step(control_state_t *state)
 
     state->measured_position_mm = sample.position_mm;
     state->measured_current_a = sample.motor_current_a;
-    state->channel_healthy = resolver_ok;
 
-    if (!resolver_ok) {
+    /* BIT gates authority: a latched fault forces the channel to a safe,
+     * zero-duty state regardless of what the PID computes (REQ-00039 -- the
+     * DAL-A control channel must not depend on Monitor/BIT firmware being
+     * correct, only on it being able to say "not healthy"). */
+    bit_monitor_update(state->lane, resolver_ok, &sample);
+    state->channel_healthy = resolver_ok && bit_monitor_is_healthy(state->lane);
+
+    if (!state->channel_healthy) {
         state->output_duty = 0.0f;
         pid_reset_integrator(&s_pid[state->lane]);
         return;
