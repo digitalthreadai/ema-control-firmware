@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax/compile check application sources
+        run: |
+          set -e
+          mkdir -p build
+          for f in src/*.c; do
+            echo "compiling $f"
+            gcc -c -std=c11 -Wall -Wextra -Isrc -Isrc/hw "$f" -o "build/$(basename "$f").o"
+          done
+
+      - name: Unit test — pid_step
+        run: |
+          set -e
+          gcc -std=c11 -Wall -Wextra -Isrc -Isrc/hw \
+              src/pid.c tests/test_pid.c -lm -o build/test_pid
+          ./build/test_pid
